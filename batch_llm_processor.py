@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-LLM Cache Processor with OpenRouter + Local Embeddings
-=======================================================
+LLM Cache Processor with OpenRouter + Embeddings
+==================================================
 
 High-performance LLM system using OpenRouter for chat completions
-and NVIDIA llama-embed-nemotron-8b for local embeddings.
+and Qwen3-Embedding-8B for embeddings (local or API).
 
 Features:
 - SHA-256 content hashing for request deduplication
 - LRU cache with 24hr TTL and automatic eviction
 - OpenRouter API for chat completions (gpt-oss-120b)
-- Local NVIDIA embeddings (llama-embed-nemotron-8b)
+- Embeddings via local Qwen3-Embedding-8B or OpenRouter API
 
 Usage:
     from batch_llm_processor import get_llm_cache, call_llm
@@ -52,43 +52,54 @@ except ImportError:
     HAS_AIOHTTP = False
     logger.warning("⚠️  aiohttp not available - HTTP fallback disabled")
 
-# NVIDIA Nemotron embeddings - lazy loaded for performance
-# Model name loaded from config.yaml (dimension is fixed at 4096)
-from config import USER_CONFIG
+# Embedding support - local model or OpenRouter API
+from config import (
+    EMBEDDING_PROVIDER, EMBEDDING_MODEL,
+    OPENROUTER_EMBEDDING_MODEL, EMBEDDING_DIMENSION, QUERY_INSTRUCTION_PREFIX,
+)
+
 EMBED_MODEL = None
-EMBED_MODEL_NAME = USER_CONFIG["llm"]["embedding_model"]
+EMBED_MODEL_NAME = EMBEDDING_MODEL
 HAS_EMBED_MODEL = False
-_embed_model_lock = threading.Lock()  # Thread-safe guard for model initialization
-try:
-    from sentence_transformers import SentenceTransformer
+_embed_model_lock = threading.Lock()
+
+if EMBEDDING_PROVIDER == "local":
+    try:
+        from sentence_transformers import SentenceTransformer
+        HAS_EMBED_MODEL = True
+    except ImportError:
+        logger.warning("⚠️  sentence-transformers not available — embeddings disabled")
+        logger.warning("   Install with: pip install sentence-transformers")
+        logger.warning("   Or set embedding_provider: openrouter in config.yaml")
+elif EMBEDDING_PROVIDER == "openrouter":
     HAS_EMBED_MODEL = True
-except ImportError:
-    logger.warning("⚠️  sentence-transformers not available - embeddings disabled")
-    logger.warning("   Install with: pip install sentence-transformers")
+else:
+    logger.error(f"❌ Unknown embedding_provider: {EMBEDDING_PROVIDER}")
+    logger.error("   Must be 'local' or 'openrouter'")
 
 def get_embed_model():
-    """Lazy-load NVIDIA Nemotron embedding model on first use (thread-safe)."""
+    """Lazy-load local embedding model on first use (thread-safe). Returns None for API provider."""
     global EMBED_MODEL
+    if EMBEDDING_PROVIDER != "local":
+        return None
     if EMBED_MODEL is None and HAS_EMBED_MODEL:
         with _embed_model_lock:
-            # Double-check inside lock to prevent multiple loads
             if EMBED_MODEL is None:
                 from config import get_compute_device
                 device = get_compute_device()
                 
                 logger.info(f"🔄 Loading embedding model: {EMBED_MODEL_NAME}")
                 logger.info(f"   Device: {device}")
-                logger.info(f"   (First run will download ~16GB from HuggingFace)")
+                logger.info(f"   (First run will download model from HuggingFace)")
                 EMBED_MODEL = SentenceTransformer(
                     EMBED_MODEL_NAME,
                     trust_remote_code=True,
                     device=device,
-                    # Allow download on first run, then cached in Docker volume
                     local_files_only=False,
                     model_kwargs={"torch_dtype": "bfloat16", "attn_implementation": "eager"},
                     tokenizer_kwargs={"padding_side": "left"},
                 )
-                logger.info(f"✅ Embedding model loaded on {device} (4096 dims)")
+                logger.info(f"✅ Embedding model loaded on {device} ({EMBEDDING_DIMENSION} dims)")
     return EMBED_MODEL
 
 def strip_markdown_json(response: str) -> str:
@@ -561,7 +572,7 @@ class LLMCacheProcessor:
     - SHA-256 request deduplication
     - 24hr TTL LRU caching
     - OpenRouter API for chat completions
-    - NVIDIA llama-embed-nemotron-8b for local embeddings
+    - Qwen3-Embedding-8B for embeddings (local or API)
     - Request deduplication for in-flight calls
     - True concurrent processing via aiohttp
     """
@@ -1035,7 +1046,7 @@ class LLMCacheProcessor:
             model: Embedding model name (default: text-embedding-3-small)
             is_query: If True, use query encoding (with instruction prefix).
                       If False, use document encoding (no prefix).
-                      Nemotron requires this distinction for optimal retrieval.
+                      Qwen3 requires this distinction for optimal retrieval.
 
         Returns:
             Embedding vector as list of floats, or None if failed
@@ -1085,40 +1096,105 @@ class LLMCacheProcessor:
             logger.error(f"❌ Embedding generation failed: {e}")
             return None
 
-    async def _generate_embedding(self, text: str, model: str = None, is_query: bool = False) -> Optional[np.ndarray]:
+    async def _generate_embedding_api(self, text: str, is_query: bool = False) -> Optional[np.ndarray]:
         """
-        Generate embedding vector using NVIDIA llama-embed-nemotron-8b.
+        Generate embedding via OpenRouter /v1/embeddings API.
 
         Args:
             text: Text to embed
-            model: Ignored - always uses NVIDIA Nemotron
-            is_query: If True, use encode_query (adds instruction prefix for retrieval).
-                      If False, use encode_document (no prefix, for indexing recipes).
+            is_query: If True, prepend query instruction prefix
 
         Returns:
-            Numpy array of embedding (4096 dims), or None if failed
+            Numpy array of embedding, or None if failed
         """
+        if not OPENROUTER_API_KEY:
+            logger.error("❌ No OpenRouter API key — cannot generate embeddings via API")
+            return None
+
+        if not HAS_AIOHTTP:
+            logger.error("❌ aiohttp required for API embeddings — pip install aiohttp")
+            return None
+
+        input_text = f"{QUERY_INSTRUCTION_PREFIX}{text}" if is_query else text
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "HTTP-Referer": "https://github.com/deepseekcoder2/ayechef",
+            "X-Title": "Aye Chef Meal Planner",
+        }
+        payload = {
+            "model": OPENROUTER_EMBEDDING_MODEL,
+            "input": [input_text],
+        }
+
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{LLM_API_URL}/embeddings",
+                        json=payload,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=60),
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            embedding = data["data"][0]["embedding"]
+                            return np.array(embedding, dtype=np.float32)
+
+                        if response.status in (429, 500, 502, 503, 504):
+                            wait = 2 ** (attempt + 1)
+                            logger.warning(f"⚠️ Embedding API returned {response.status}, retrying in {wait}s...")
+                            await asyncio.sleep(wait)
+                            continue
+
+                        body = await response.text()
+                        logger.error(f"❌ Embedding API error {response.status}: {body[:200]}")
+                        return None
+
+            except asyncio.TimeoutError:
+                logger.warning(f"⚠️ Embedding API timeout (attempt {attempt + 1}/3)")
+                continue
+            except Exception as e:
+                logger.error(f"❌ Embedding API request failed: {e}")
+                return None
+
+        logger.error("❌ Embedding API failed after 3 attempts")
+        return None
+
+    async def _generate_embedding(self, text: str, model: str = None, is_query: bool = False) -> Optional[np.ndarray]:
+        """
+        Generate embedding vector — dispatches to local model or OpenRouter API.
+
+        Args:
+            text: Text to embed
+            model: Ignored (provider determines the model)
+            is_query: If True, use query encoding (instruction prefix for retrieval).
+                      If False, use document encoding (no prefix).
+
+        Returns:
+            Numpy array of embedding, or None if failed
+        """
+        if EMBEDDING_PROVIDER == "openrouter":
+            return await self._generate_embedding_api(text, is_query=is_query)
+
         if not HAS_EMBED_MODEL:
-            logger.error("❌ sentence-transformers not available - install with: pip install sentence-transformers")
+            logger.error("❌ sentence-transformers not available — install it or set embedding_provider: openrouter")
             return None
 
         try:
-            # Get or load NVIDIA model (lazy loading)
             embed_model = get_embed_model()
             if embed_model is None:
                 logger.error("❌ Failed to load embedding model")
                 return None
 
-            # Run embedding in thread pool to not block async loop
             loop = asyncio.get_event_loop()
             if is_query:
-                # Use encode_query for search queries (adds instruction prefix for better retrieval)
                 embedding = await loop.run_in_executor(
                     None,
                     lambda: embed_model.encode_query(text)
                 )
             else:
-                # Use encode_document for recipe content (no instruction prefix needed)
                 embedding = await loop.run_in_executor(
                     None,
                     lambda: embed_model.encode_document([text])[0]

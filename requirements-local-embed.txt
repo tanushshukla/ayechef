@@ -1,0 +1,5 @@
+# Local embedding model dependencies
+# Only needed if embedding_provider: "local" in config.yaml
+# Install with: pip install -r requirements-local-embed.txt
+sentence-transformers>=3.0.0
+accelerate>=0.20.0

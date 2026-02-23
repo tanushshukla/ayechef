@@ -42,6 +42,9 @@ python orchestrator.py --dry-run --week-start 2026-02-03
 ```
 
 ### Recipe Import
+
+> **Note:** Aye Chef supports English-language recipes only. Non-English recipes may fail to import or process correctly.
+
 ```bash
 # Single recipe
 python import_recipe.py https://example.com/recipe-url
@@ -184,10 +187,12 @@ docker compose restart worker
 
 ### Embedding model issues
 ```bash
-# Pre-download model
+# Pre-download model (only needed for local provider)
 docker compose exec worker python -c \
-  "from sentence_transformers import SentenceTransformer; SentenceTransformer('nvidia/llama-embed-nemotron-8b')"
+  "from sentence_transformers import SentenceTransformer; SentenceTransformer('Qwen/Qwen3-Embedding-8B')"
 ```
+
+**Alternative:** Set `embedding_provider: "openrouter"` in `config.yaml` to skip local model download.
 
 ### View job output
 ```bash

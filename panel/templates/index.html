@@ -140,7 +140,9 @@
             </div>
         </div>
         <input type="hidden" name="chat_model" value="openai/gpt-4o-mini">
-        <input type="hidden" name="embedding_model" value="nvidia/llama-embed-nemotron-8b">
+        <input type="hidden" name="embedding_provider" value="openrouter">
+        <input type="hidden" name="embedding_model" value="Qwen/Qwen3-Embedding-8B">
+        <input type="hidden" name="openrouter_embedding_model" value="qwen/qwen3-embedding-8b">
         <button type="submit" class="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition">
             Get Started
         </button>
@@ -463,8 +465,22 @@
                                class="w-full px-3 py-2 bg-subtle border border-border rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-muted mb-1">Embedding model</label>
+                        <label class="block text-sm font-medium text-muted mb-1">Embedding provider</label>
+                        <select name="embedding_provider"
+                                class="w-full px-3 py-2 bg-subtle border border-border rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none">
+                            <option value="openrouter" {{ 'selected' if config.llm.get('embedding_provider', 'openrouter') == 'openrouter' }}>OpenRouter API</option>
+                            <option value="local" {{ 'selected' if config.llm.get('embedding_provider', 'openrouter') == 'local' }}>Local (sentence-transformers)</option>
+                        </select>
+                        <p class="text-xs text-muted mt-1">Local requires GPU/Apple Silicon. OpenRouter needs only an API key.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-muted mb-1">Embedding model (local)</label>
                         <input type="text" name="embedding_model" value="{{ config.llm.embedding_model }}"
+                               class="w-full px-3 py-2 bg-subtle border border-border rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-muted mb-1">Embedding model (OpenRouter)</label>
+                        <input type="text" name="openrouter_embedding_model" value="{{ config.llm.get('openrouter_embedding_model', 'qwen/qwen3-embedding-8b') }}"
                                class="w-full px-3 py-2 bg-subtle border border-border rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none">
                     </div>
                     <div class="pt-2 border-t border-border">

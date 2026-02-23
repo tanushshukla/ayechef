@@ -77,10 +77,10 @@ class RecipeRAG:
         """
         self.db_path = db_path
         # Embedding model loaded from config.yaml
-        self.embedding_model = USER_CONFIG["llm"]["embedding_model"]
-        # IMPORTANT: embedding_dim is HARDCODED at 4096 - do NOT make configurable
-        # Changing this after data exists corrupts the SQLite database and ANN index
-        self.embedding_dim = 4096
+        from config import EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_DIMENSION
+        self.embedding_model = EMBEDDING_MODEL
+        self.embedding_provider = EMBEDDING_PROVIDER
+        self.embedding_dim = EMBEDDING_DIMENSION
 
         # Initialize database
         self._init_database()
@@ -88,7 +88,7 @@ class RecipeRAG:
         # Add ANN index initialization
         try:
             from recipe_ann_index import RecipeANNIndex
-            self.ann_index = RecipeANNIndex(dimension=4096)
+            self.ann_index = RecipeANNIndex(dimension=self.embedding_dim)
 
             # Try loading existing index, build if not found
             try:
@@ -170,7 +170,7 @@ class RecipeRAG:
             text: Text to embed
             is_query: If True, use query encoding (for search queries).
                       If False, use document encoding (for indexing recipes).
-                      Nemotron model requires this distinction for optimal retrieval.
+                      Some embedding models require this distinction for optimal retrieval.
 
         Returns:
             Numpy array of embedding, or None if failed
@@ -250,6 +250,33 @@ class RecipeRAG:
             logger.error(f"❌ Failed to index recipe {recipe.get('name', 'unknown')}: {e}")
             return False
 
+    async def _batch_embed_api(self, texts: List[str], concurrency: int = 5) -> Optional[np.ndarray]:
+        """
+        Generate embeddings for multiple texts via OpenRouter API with concurrency control.
+        """
+        import asyncio
+        from batch_llm_processor import get_llm_cache
+        
+        cache = await get_llm_cache()
+        semaphore = asyncio.Semaphore(concurrency)
+        
+        async def embed_one(text):
+            async with semaphore:
+                return await cache.call_embedding(text, is_query=False)
+        
+        tasks = [embed_one(t) for t in texts]
+        results = await asyncio.gather(*tasks)
+        
+        embeddings = []
+        for i, result in enumerate(results):
+            if result is None:
+                logger.warning(f"⚠️ Failed to embed text {i}, using zero vector")
+                embeddings.append(np.zeros(self.embedding_dim, dtype=np.float32))
+            else:
+                embeddings.append(np.array(result, dtype=np.float32))
+        
+        return np.array(embeddings, dtype=np.float32)
+
     def index_recipes_batch(self, recipes: List[dict], force: bool = False) -> int:
         """
         Index multiple recipes in one operation with batched embedding generation.
@@ -284,26 +311,41 @@ class RecipeRAG:
         # Generate searchable texts for all recipes
         texts = [self._create_searchable_text(r) for r in to_index]
         
-        # Batch embedding generation (single GPU/MPS call)
+        # Batch embedding generation
         try:
-            from batch_llm_processor import get_embed_model
-            from config import get_embedding_batch_size
+            import asyncio
             import numpy as np
+            from config import EMBEDDING_PROVIDER
             
-            model = get_embed_model()
-            if model is None:
-                logger.error("❌ Embedding model not available")
-                return 0
-            
-            # Use encode_document for consistency with existing embeddings
-            # This ensures search works correctly (documents and queries use same method)
-            batch_size = get_embedding_batch_size()
-            logger.info(f"   Generating {len(texts)} embeddings (batch_size={batch_size})...")
-            embeddings = model.encode_document(texts, batch_size=batch_size)
-            
-            # Convert to numpy if needed
-            if not isinstance(embeddings, np.ndarray):
-                embeddings = np.array(embeddings, dtype=np.float32)
+            if EMBEDDING_PROVIDER == "local":
+                from batch_llm_processor import get_embed_model
+                from config import get_embedding_batch_size
+                
+                model = get_embed_model()
+                if model is None:
+                    logger.error("❌ Embedding model not available")
+                    return 0
+                
+                batch_size = get_embedding_batch_size()
+                logger.info(f"   Generating {len(texts)} embeddings locally (batch_size={batch_size})...")
+                embeddings = model.encode_document(texts, batch_size=batch_size)
+                
+                if not isinstance(embeddings, np.ndarray):
+                    embeddings = np.array(embeddings, dtype=np.float32)
+            else:
+                logger.info(f"   Generating {len(texts)} embeddings via OpenRouter API...")
+                try:
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self._batch_embed_api(texts))
+                        embeddings = future.result(timeout=300)
+                except RuntimeError:
+                    embeddings = asyncio.run(self._batch_embed_api(texts))
+                
+                if embeddings is None:
+                    logger.error("❌ API batch embedding failed")
+                    return 0
             
             logger.info(f"   ✅ Embeddings generated")
             
@@ -336,6 +378,26 @@ class RecipeRAG:
                 logger.info(f"💾 Saved ANN index with {success_count} new recipes")
             except Exception as e:
                 logger.error(f"❌ Failed to save ANN index: {e}")
+        
+        # Write embedding metadata for health check mismatch detection
+        if success_count > 0:
+            try:
+                import json
+                from datetime import datetime
+                from config import (
+                    DATA_DIR, EMBEDDING_PROVIDER, EMBEDDING_MODEL,
+                    OPENROUTER_EMBEDDING_MODEL, EMBEDDING_DIMENSION,
+                )
+                meta = {
+                    "provider": EMBEDDING_PROVIDER,
+                    "model": OPENROUTER_EMBEDDING_MODEL if EMBEDDING_PROVIDER == "openrouter" else EMBEDDING_MODEL,
+                    "dimension": EMBEDDING_DIMENSION,
+                    "last_indexed": datetime.now().isoformat(),
+                }
+                with open(DATA_DIR / "embedding_meta.json", "w") as f:
+                    json.dump(meta, f, indent=2)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to write embedding metadata: {e}")
         
         logger.info(f"✅ Batch indexed {success_count}/{len(to_index)} recipes")
         return success_count
@@ -657,7 +719,7 @@ class RecipeRAG:
             List of matching recipes with scores
         """
         # Generate embedding for menu concept (FAIL FAST if embedding infra is broken)
-        # Use is_query=True for search queries (Nemotron adds instruction prefix for retrieval)
+        # Use is_query=True for search queries (adds instruction prefix for retrieval)
         concept_embedding = self._generate_embedding(menu_concept, is_query=True)
         if concept_embedding is None:
             raise RuntimeError(

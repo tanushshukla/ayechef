@@ -10,10 +10,13 @@ urllib3>=2.0.0
 recipe-scrapers>=15.11.0
 beautifulsoup4>=4.12.0
 
-# Data & ML
+# Data
 numpy>=1.24.0
-sentence-transformers>=3.0.0
-accelerate>=0.20.0
+
+# Local embedding model (optional — only needed if embedding_provider is "local")
+# Install with: pip install -r requirements-local-embed.txt
+# sentence-transformers>=3.0.0
+# accelerate>=0.20.0
 
 # Vector search
 usearch>=2.9.0

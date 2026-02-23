@@ -150,36 +150,81 @@ def check_openrouter_api() -> Dict[str, Any]:
 
 
 def check_embedding_model() -> Dict[str, Any]:
-    """Check if embedding model is downloaded."""
+    """Check embedding provider readiness."""
     try:
-        from config import USER_CONFIG
-        model_name = USER_CONFIG.get("llm", {}).get("embedding_model", "nvidia/llama-embed-nemotron-8b")
+        from config import EMBEDDING_PROVIDER, EMBEDDING_MODEL, OPENROUTER_EMBEDDING_MODEL, CHAT_API_KEY
         
-        # Check if model files exist in cache
+        if EMBEDDING_PROVIDER == "openrouter":
+            if not CHAT_API_KEY:
+                return {
+                    "status": "error",
+                    "message": "OpenRouter API key required",
+                    "fix": "Set OPENROUTER_API_KEY env var or add to data/secrets.yaml"
+                }
+            return {
+                "status": "ok",
+                "message": f"OpenRouter: {OPENROUTER_EMBEDDING_MODEL}"
+            }
+        
+        model_name = EMBEDDING_MODEL
         cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        
-        # Also check Docker volume location
         docker_cache = Path("/root/.cache/huggingface/hub")
-        
-        # Model folder name format: models--org--name
         model_folder = f"models--{model_name.replace('/', '--')}"
         
         if (cache_dir / model_folder).exists() or (docker_cache / model_folder).exists():
-            return {"status": "ok", "message": "Model downloaded"}
+            return {"status": "ok", "message": f"Local: {model_name}"}
         
-        # Model not found in cache - required but will auto-download
         return {
             "status": "warning", 
-            "message": "Not yet downloaded (~2GB)",
-            "fix": "Required for meal planning (~16GB download). Pre-download with: docker compose exec worker python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('nvidia/llama-embed-nemotron-8b')\""
+            "message": "Model not yet downloaded",
+            "fix": f"Will auto-download on first use (~16GB). Or switch to embedding_provider: openrouter in config.yaml."
         }
     
     except Exception as e:
         return {
             "status": "warning",
             "message": str(e)[:50],
-            "fix": "Check embedding model configuration"
+            "fix": "Check embedding configuration in config.yaml"
         }
+
+
+def check_embedding_index_status() -> Dict[str, Any]:
+    """Check if embedding index matches current provider/model config."""
+    try:
+        from config import DATA_DIR, EMBEDDING_PROVIDER, EMBEDDING_MODEL, OPENROUTER_EMBEDDING_MODEL
+        import json
+        
+        meta_path = DATA_DIR / "embedding_meta.json"
+        index_path = DATA_DIR / "recipe_usearch.index"
+        
+        if not index_path.exists():
+            return {"status": "warning", "message": "No index built yet", "fix": "Run recipe indexing to build the search index."}
+        
+        if not meta_path.exists():
+            return {
+                "status": "warning",
+                "message": "Index exists but no metadata — may need re-index",
+                "fix": "Re-index recipes to generate metadata for the current embedding provider."
+            }
+        
+        with open(meta_path) as f:
+            meta = json.load(f)
+        
+        current_model = OPENROUTER_EMBEDDING_MODEL if EMBEDDING_PROVIDER == "openrouter" else EMBEDDING_MODEL
+        indexed_model = meta.get("model", "unknown")
+        indexed_provider = meta.get("provider", "unknown")
+        
+        if indexed_provider != EMBEDDING_PROVIDER or indexed_model != current_model:
+            return {
+                "status": "error",
+                "message": f"Index mismatch: built with {indexed_provider}/{indexed_model}, config is {EMBEDDING_PROVIDER}/{current_model}",
+                "fix": "Re-index all recipes to use the current embedding provider/model."
+            }
+        
+        return {"status": "ok", "message": f"Index matches config ({indexed_provider}/{indexed_model})"}
+    
+    except Exception as e:
+        return {"status": "warning", "message": str(e)[:50]}
 
 
 def check_recipe_index() -> Dict[str, Any]:
@@ -682,6 +727,7 @@ def run_all_checks() -> Dict[str, Dict[str, Any]]:
         "mealie": check_mealie_connection(),
         "openrouter": check_openrouter_api(),
         "embedding": check_embedding_model(),
+        "embedding_index": check_embedding_index_status(),
         "index": check_recipe_index(),
         "sync_staleness": check_sync_staleness(),
         "cuisine": check_cuisine_distribution(),

@@ -6,11 +6,11 @@ This module centralizes all configuration for the meal planning system that
 integrates:
 - Mealie v3.9.1 (recipe management, Docker)
 - OpenRouter API (cloud LLM for chat/reasoning)
-- NVIDIA local embeddings (4096-dim vectors)
+- Qwen3-Embedding-8B (local or OpenRouter, 4096-dim vectors)
 
 ARCHITECTURE:
 - LLM Chat: OpenRouter API (configurable model)
-- Embeddings: Local NVIDIA llama-embed-nemotron-8b (4096-dim, fixed)
+- Embeddings: Qwen3-Embedding-8B (4096-dim, local or OpenRouter API)
 - Recipe DB: Mealie with OpenRouter integration for parsing
 
 CONFIGURATION:
@@ -558,6 +558,22 @@ LM_STUDIO_HEALTH_ENDPOINT = f"{CHAT_API_URL}/models"
 # Generic legacy name for backwards compatibility
 LLM_MODEL = CHAT_MODEL
 
+# =============================================================================
+# EMBEDDING CONFIGURATION
+# =============================================================================
+
+EMBEDDING_PROVIDER = USER_CONFIG.get("llm", {}).get("embedding_provider", "openrouter")
+EMBEDDING_MODEL = USER_CONFIG["llm"]["embedding_model"]
+OPENROUTER_EMBEDDING_MODEL = USER_CONFIG.get("llm", {}).get(
+    "openrouter_embedding_model", "qwen/qwen3-embedding-8b"
+)
+EMBEDDING_DIMENSION = 4096
+
+QUERY_INSTRUCTION_PREFIX = (
+    "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
+    "Query: "
+)
+
 
 # =============================================================================
 # BRAVE SEARCH API CONFIGURATION
@@ -769,7 +785,8 @@ def validate_all() -> bool:
     logger.info("✅ ALL DEPENDENCIES VALIDATED - SYSTEM READY!")
     logger.info("✅ Mealie: Connected and authenticated")
     logger.info("✅ OpenRouter: Connected with required model")
-    logger.info("✅ NVIDIA Embeddings: Local model (sentence-transformers)")
+    provider_info = "OpenRouter API" if EMBEDDING_PROVIDER == "openrouter" else "local (sentence-transformers)"
+    logger.info(f"✅ Embeddings: Qwen3-Embedding-8B ({provider_info})")
     logger.info("✅ SYSTEM READY FOR PRODUCTION")
     logger.info("=" * 60)
 
@@ -803,7 +820,8 @@ def print_config_summary() -> None:
     print(f"Mealie Token:       {'✓ Set' if MEALIE_TOKEN else '✗ Not set'}")
     print(f"Chat Model:         {CHAT_MODEL}")
     print(f"Chat Key:           {'✓ Set' if CHAT_API_KEY else '✗ Not set'}")
-    print(f"Embedding Model:    {embedding_model} (4096-dim, local)")
+    provider_label = "OpenRouter API" if EMBEDDING_PROVIDER == "openrouter" else "local"
+    print(f"Embedding Model:    {embedding_model} (4096-dim, {provider_label})")
     print(f"Household:          {HOUSEHOLD_DESCRIPTION}")
     print(f"Household Size:     {HOUSEHOLD_SERVINGS} servings")
     print(f"Meal Types:         {', '.join(MEAL_TYPES)}")

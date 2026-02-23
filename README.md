@@ -2,7 +2,7 @@
 
 AI-powered weekly meal planning with vector search, automatic shopping lists, and smart recipe imports.
 
-**Stack:** Flask + Huey (web panel) • OpenRouter (LLM) • sentence-transformers (local embeddings) • Mealie (recipe storage)
+**Stack:** Flask + Huey (web panel) • OpenRouter (LLM) • Qwen3-Embedding-8B (local or OpenRouter embeddings) • Mealie (recipe storage)
 
 ![Aye Chef Dashboard](docs/screenshots/dashboard.png)
 
@@ -36,11 +36,9 @@ Aye Chef is a companion tool for [Mealie](https://mealie.io), an open-source rec
 
 If you don't have Mealie yet, set it up first: [Mealie Installation Guide](https://docs.mealie.io/documentation/getting-started/installation/)
 
-If you have an existing version, MAKE SURE TO BACK UP YOUR MEALIE LIBRARY. THIS IS EXPERIMENTAL SOFTWARE. YOU HAVE BEEN WARNED. 
-
 ### 2. Hardware requirements
 
-Aye Chef runs a local embedding model (`nvidia/llama-embed-nemotron-8b`, 8B parameters) for semantic recipe search. This model loads in bfloat16 and requires significant memory:
+Aye Chef uses an embedding model (`Qwen/Qwen3-Embedding-8B`, 8B parameters) for semantic recipe search. It can run locally via sentence-transformers or through the OpenRouter API. When running locally, the model loads in bfloat16 and requires significant memory:
 
 | Platform | Minimum RAM | Notes |
 |----------|-------------|-------|
@@ -50,7 +48,7 @@ Aye Chef runs a local embedding model (`nvidia/llama-embed-nemotron-8b`, 8B para
 
 The model downloads ~16GB on first use and stays cached in a Docker volume.
 
-> **Why such a large model?** Smaller embedding models were tested but couldn't perform the semantic search tasks required by the AI meal planner (e.g., finding recipes by cooking style, protein type, or complexity). The 8B model's 4096-dimensional embeddings provide the retrieval quality the agentic planner depends on.
+> **Why such a large model?** Smaller embedding models were tested but couldn't perform the semantic search tasks required by the AI meal planner (e.g., finding recipes by cooking style, protein type, or complexity). The Qwen3-Embedding-8B model's 4096-dimensional embeddings provide the retrieval quality the agentic planner depends on. If you don't have the hardware, use `embedding_provider: "openrouter"` to run embeddings via the API instead.
 
 ### 3. Docker & Docker Compose
 
@@ -167,7 +165,7 @@ After importing recipes, build the vector search index:
 2. Click **Repair & Optimize** under "Routine"
 3. This tags untagged recipes, parses ingredients, and builds the search index
 
-The first run may take a few hours if you imported many recipes. The embedding model downloads automatically if not already cached (~16GB, one-time).
+The first run may take a few minutes if you imported many recipes. The embedding model downloads automatically if not already cached (~16GB, one-time).
 
 ### Step 9: Plan your first meal
 
@@ -230,7 +228,9 @@ pantry:
 
 llm:
   chat_model: "openai/gpt-4o-mini"
-  embedding_model: "nvidia/llama-embed-nemotron-8b"
+  embedding_provider: "openrouter"  # or "local" for GPU users
+  embedding_model: "Qwen/Qwen3-Embedding-8B"
+  openrouter_embedding_model: "qwen/qwen3-embedding-8b"
 
 # Optional: Image search for recipes without photos
 image_search:
@@ -633,13 +633,15 @@ If cancelling a job causes the worker to hang:
 
 ### Embedding model not downloading
 
-The model downloads automatically on first use. If it hangs or fails, pre-download manually:
+The local model downloads automatically on first use. If it hangs or fails, pre-download manually:
 ```bash
 docker compose exec worker python -c \
-  "from sentence_transformers import SentenceTransformer; SentenceTransformer('nvidia/llama-embed-nemotron-8b')"
+  "from sentence_transformers import SentenceTransformer; SentenceTransformer('Qwen/Qwen3-Embedding-8B')"
 ```
 
 If you're behind a corporate proxy or firewall, ensure the container has internet access to reach Hugging Face (`huggingface.co`).
+
+**Alternative:** If you don't want to download the model locally, set `embedding_provider: "openrouter"` in your `config.yaml` to use the OpenRouter API for embeddings instead.
 
 ### Import fails for unsupported site
 

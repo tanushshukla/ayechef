@@ -215,11 +215,28 @@ llm:
   # - x-ai/grok-4.1-fast (fast, good for structured output)
   chat_model: "openai/gpt-4o-mini"
   
-  # Embedding model for recipe search (local model via sentence-transformers)
-  # NOTE: Changing this after indexing recipes will require rebuilding the index
-  # NOTE: embedding_dimension is fixed at 4096 and not configurable
-  #       (changing it would corrupt existing recipe indexes)
-  embedding_model: "nvidia/llama-embed-nemotron-8b"
+  # Embedding provider: "local" or "openrouter"
+  #
+  # local:      Runs Qwen3-Embedding-8B on your machine via sentence-transformers.
+  #             Requires ~16GB VRAM (GPU) or 32GB+ unified memory (Apple Silicon).
+  #             No API costs. Works offline.
+  #
+  # openrouter: Calls OpenRouter's /v1/embeddings API.
+  #             No GPU required — just needs an OpenRouter API key.
+  #             Cost: ~$0.01 per 1000 recipes. Requires internet.
+  #
+  # NOTE: Changing this after indexing recipes will require rebuilding the index.
+  embedding_provider: "openrouter"
+
+  # Embedding model for recipe search
+  # Default: Qwen/Qwen3-Embedding-8B (4096 dimensions, #1 on MTEB multilingual)
+  # Used for both local and OpenRouter modes (same model family).
+  #
+  # Local model ID (sentence-transformers / HuggingFace):
+  embedding_model: "Qwen/Qwen3-Embedding-8B"
+
+  # OpenRouter embedding model ID (only used when embedding_provider is "openrouter"):
+  openrouter_embedding_model: "qwen/qwen3-embedding-8b"
 
 # -----------------------------------------------------------------------------
 # Image Search Settings (Optional)
@@ -257,7 +274,8 @@ hardware:
   # Batch size for embedding generation
   # Higher = faster but uses more VRAM/unified memory
   # 
-  # NOTE: The default embedding model (nvidia/llama-embed-nemotron-8b) requires
+  # Only applies when embedding_provider is "local".
+  # NOTE: The default embedding model (Qwen/Qwen3-Embedding-8B) requires
   # ~16GB just for model weights in bfloat16. The batch size setting controls
   # how much ADDITIONAL memory is used during embedding generation.
   # 

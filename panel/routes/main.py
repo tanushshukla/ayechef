@@ -246,7 +246,9 @@ def save_settings():
 
     config["llm"] = {
         'chat_model': request.form.get('chat_model', 'openai/gpt-4o-mini'),
-        'embedding_model': request.form.get('embedding_model', 'nvidia/llama-embed-nemotron-8b'),
+        'embedding_provider': request.form.get('embedding_provider', 'openrouter'),
+        'embedding_model': request.form.get('embedding_model', 'Qwen/Qwen3-Embedding-8B'),
+        'openrouter_embedding_model': request.form.get('openrouter_embedding_model', 'qwen/qwen3-embedding-8b'),
     }
 
     _ensure_dict(config, "image_search")["use_vision_validation"] = request.form.get('vision_validation') == 'on'
