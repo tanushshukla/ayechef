@@ -7,7 +7,42 @@ from typing import Optional
 THEMES_PATH = Path(__file__).parent / 'themes.json'
 
 # Default theme if none configured
-DEFAULT_THEME_ID = 'morning-light'
+DEFAULT_THEME_ID = 'forest-floor'
+
+# Built-in fallback so the panel can still boot if themes.json is absent.
+FALLBACK_THEMES = {
+    'themes': [
+        {
+            'id': DEFAULT_THEME_ID,
+            'name': 'Forest Floor',
+            'type': 'dark',
+            'colors': {
+                'bg-base': '#07130F',
+                'bg-card': '#0E1C17',
+                'bg-subtle': '#163128',
+                'text-primary': '#E7F2EC',
+                'text-muted': '#9AB8AB',
+                'accent': '#2FB073',
+                'accent-hover': '#24915E',
+                'success': '#4CBF84',
+                'error': '#D16A5F',
+                'warning': '#D7A64C',
+                'border': '#22473A',
+                'border-strong': '#356854',
+            },
+            'chart': [
+                '#2FB073',
+                '#5FCB97',
+                '#7CC7B5',
+                '#A5D66A',
+                '#D7A64C',
+                '#D16A5F',
+                '#4D8F76',
+                '#7FBF8E',
+            ],
+        }
+    ]
+}
 
 # Cached themes data
 _themes_cache: Optional[dict] = None
@@ -25,9 +60,10 @@ def load_themes() -> list[dict]:
         return _themes_cache['themes']
     
     if not THEMES_PATH.exists():
-        raise FileNotFoundError(f"Themes file not found: {THEMES_PATH}")
+        _themes_cache = FALLBACK_THEMES
+        return _themes_cache['themes']
     
-    with open(THEMES_PATH) as f:
+    with open(THEMES_PATH, encoding='utf-8') as f:
         data = json.load(f)
     
     _themes_cache = data

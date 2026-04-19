@@ -18,6 +18,7 @@ logs/
 *.index
 *.log
 *.json
+!panel/themes.json
 last_payload.json
 meal_plan.txt
 parsing_cache.json

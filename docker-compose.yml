@@ -9,10 +9,9 @@ services:
       - "8080:8080"
     volumes:
       - .:/app  # Mount entire source for development
-      - /app/__pycache__  # Exclude pycache
-      - /app/.git  # Exclude git
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       # Optional: Override credentials via env vars instead of web UI
       # - MEALIE_TOKEN=your_token_here
       # - OPENROUTER_API_KEY=your_key_here
@@ -26,11 +25,10 @@ services:
     command: worker
     volumes:
       - .:/app  # Mount entire source for development
-      - /app/__pycache__  # Exclude pycache
-      - /app/.git  # Exclude git
       - huggingface_cache:/root/.cache/huggingface
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       # Optional: Override credentials via env vars instead of web UI
       # - MEALIE_TOKEN=your_token_here
       # - OPENROUTER_API_KEY=your_key_here

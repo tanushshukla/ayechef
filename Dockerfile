@@ -23,6 +23,7 @@ EXPOSE 8080
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV FLASK_APP=panel.app:app
 
 # Entrypoint script

@@ -1,0 +1,33 @@
+{
+  "themes": [
+    {
+      "id": "forest-floor",
+      "name": "Forest Floor",
+      "type": "dark",
+      "colors": {
+        "bg-base": "#07130F",
+        "bg-card": "#0E1C17",
+        "bg-subtle": "#163128",
+        "text-primary": "#E7F2EC",
+        "text-muted": "#9AB8AB",
+        "accent": "#2FB073",
+        "accent-hover": "#24915E",
+        "success": "#4CBF84",
+        "error": "#D16A5F",
+        "warning": "#D7A64C",
+        "border": "#22473A",
+        "border-strong": "#356854"
+      },
+      "chart": [
+        "#2FB073",
+        "#5FCB97",
+        "#7CC7B5",
+        "#A5D66A",
+        "#D7A64C",
+        "#D16A5F",
+        "#4D8F76",
+        "#7FBF8E"
+      ]
+    }
+  ]
+}

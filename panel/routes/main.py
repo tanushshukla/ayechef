@@ -194,7 +194,7 @@ def save_settings():
     existing_config = get_config() or {}
     
     # Get theme preference
-    theme_id = request.form.get('theme', 'morning-light')
+    theme_id = request.form.get('theme', 'forest-floor')
     theme_id = validate_theme_id(theme_id)
 
     def _ensure_dict(root: dict, key: str) -> dict:
